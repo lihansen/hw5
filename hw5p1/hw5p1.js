@@ -83,7 +83,7 @@ app.delete('/player/:pid', (req, res) => {
 app.post('/player', (req, res) => {
     var query = req.query;
 
-    // print(query)
+    print(query)
     var checked = check_invalid_query(query);
 
     var invalids = checked;
@@ -97,7 +97,8 @@ app.post('/player', (req, res) => {
             lname: query.lname,
             handed: handed_query_to_db[query.handed],
             is_active: query.active,
-            balance_usd: check_balance(query.initial_balance_usd),
+            // balance_usd: check_balance(query.initial_balance_usd),
+            balance_usd_cents: number(query.initial_balance_usd_cents),
             created_at: date,
         }
 
@@ -117,8 +118,7 @@ app.post('/player', (req, res) => {
         res.end();
 
     }
-    // res.writeHead(888);
-    // res.end();
+
 })
 
 
@@ -182,41 +182,45 @@ app.post('/deposit/player/:pid', (req, res) => {
     var pid = req.params.pid;
     var query = req.query;
 
-    p_find(pid, mongo_url).then(
-        (data) => { // player found 
-            var blc = data.balance_usd;
-            // check balance
 
-            // check amount valid 
-            if (!check_valid_amount_in_query(query)) {
-                res.writeHead(400);
-                res.end();
-            } else {
+    //check query 
+    
+    if (!/^[0-9]*$/.test(query.amount_usd_cents)) {
+        res.writeHead(400);
+        res.end();
+    } else {
+        var increase = number(query.amount_usd_cents);
 
-                // format the new balance to string 
-                var new_blc = format_balance(blc, query.amount_usd);
+        p_find(pid, mongo_url).then(
+            (data) => { // player found 
 
-                // update the blc 
-                p_update(pid, mongo_url, { balance_usd: new_blc }).then(
+                var old_blc = data.balance_usd_cents;
+                var new_blc = old_blc + increase;
+                p_update(pid, mongo_url, { balance_usd_cents: new_blc }).then(
                     (data) => {
                         res.writeHead(200);
                         res.write(JSON.stringify({
-                            old_balance_usd: blc,
-                            new_balance_usd: new_blc,
+                            old_balance_usd_cents: old_blc,
+                            new_balance_usd_cents: new_blc,
                         }))
                         res.end();
                     }, (err) => {
-                        res.writeHead(888);
+                        res.writeHead(404);
                         res.end();
                     })
-            }
 
 
-        }, (err) => {
-            // player not found 
-            res.writeHead(404);
-            res.end();
-        })
+
+
+            }, (err) => {
+                // player not found 
+                res.writeHead(404);
+                res.end();
+            })
+
+
+    }
+
 
 })
 
@@ -224,11 +228,8 @@ app.listen(port, () => {
     // console.log(`Example app listening on port ${port}`)
 })
 
-
-
-
 ////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////util functions//////////////////////////////////////
+/////////////////////////////db connection//////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////
 
 
@@ -279,6 +280,18 @@ if (!("collection" in config_json)) {
 const mongo_url = 'mongodb://' + config_json.host + ':' + config_json.port;
 var MongoClient = require('mongodb').MongoClient;
 
+const mg_client = MongoClient.connect(mongo_url);
+
+
+
+////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////util functions//////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
 var handed_query_to_db = {
     left: "L",
     right: "R",
@@ -307,7 +320,8 @@ function convert_db_to_json_player(result) {
         pid: result._id,
         name: name,
         handed: handed_db_to_json[result.handed],
-        balance_usd: format_balance(result.balance_usd, '0'),
+        // balance_usd: format_balance(result.balance_usd, '0'),
+        balance_usd_cents: number(result.balance_usd_cents),
         is_active: result.is_active,
     }
 }
@@ -331,23 +345,22 @@ function check_invalid_query(query) {
             invalids.push('handed');
         }
     }
-    if ('initial_balance_usd' in query) {
-        var blc = query['initial_balance_usd'];
+    // if ('initial_balance_usd' in query) {
+    //     var blc = query['initial_balance_usd'];
 
-        var digits = blc.split('.')
+    //     var digits = blc.split('.')
 
-        if (digits.length > 2 || (digits.length == 2 && digits[1].length > 2)) {
-            invalids.push('initial_balance_usd');
-        }
-    }
-    if ('balance_usd' in query) {
+    //     if (digits.length > 2 || (digits.length == 2 && digits[1].length > 2)) {
+    //         invalids.push('initial_balance_usd');
+    //     }
+    // }
+
+    if ('initial_balance_usd_cents' in query) {
         var blc = query['balance_usd'];
-
-        var digits = blc.split('.')
-
-        if (digits.length > 2 || (digits.length == 2 && digits[1].length > 2)) {
-            invalids.push('initial_balance_usd');
+        if (!/^[0-9]*$/.test(query.initial_balance_usd_cents)) {
+            invalids.push('initial_balance_usd_cents');
         }
+        
     }
     if ('active' in query) {
         if (query['active'] == true || query['active'] == false) {
@@ -369,25 +382,25 @@ function fill_empty_fields(query) {
     }
 }
 
-function check_balance(sum) {
-    if (!/^[0-9]+\.[0-9][0-9]$/.test(sum)) {
-        var d = sum.split('.')
-        if (d.length == 1) {
-            sum = d + '.00'
-        } else if (d.length == 2) {
-            if (d[1].length > 2) {
-                sum = d[0] + '.' + d[1].slice(0, 2)
-            } else if (d[1].length == 0) {
-                sum = d[0] + '.00';
-            }
-            else if (d[1].length == 1) {
-                sum = d[0] + '.' + d[1] + '0';
-            }
-        }
+// function check_balance(sum) {
+//     if (!/^[0-9]+\.[0-9][0-9]$/.test(sum)) {
+//         var d = sum.split('.')
+//         if (d.length == 1) {
+//             sum = d + '.00'
+//         } else if (d.length == 2) {
+//             if (d[1].length > 2) {
+//                 sum = d[0] + '.' + d[1].slice(0, 2)
+//             } else if (d[1].length == 0) {
+//                 sum = d[0] + '.00';
+//             }
+//             else if (d[1].length == 1) {
+//                 sum = d[0] + '.' + d[1] + '0';
+//             }
+//         }
 
-    }
-    return sum
-}
+//     }
+//     return sum
+// }
 
 
 function print(a) {
@@ -416,28 +429,6 @@ function p_update(pid, mongo_url, update_query) {
         })
     })
 }
-
-
-// function p_find(pid, mongo_url) {
-//     return new Promise((resolve, reject) => {
-//         MongoClient.connect(mongo_url, function (err, db) {
-//             if (err) process.exit(5);
-
-//             var dbo = db.db(config_json.db);
-//             var ido = new ObjectId(pid);
-//             dbo.collection(config_json.collection).findOne({ _id: ido },
-//                 function (err, result) {
-//                     if (result) {
-//                         resolve(result);
-//                     } else {
-//                         reject(err);
-//                     }
-//                 })
-
-//         })
-//     })
-
-// }
 
 
 function p_find(pid, mongo_url) {
@@ -502,24 +493,24 @@ function check_valid_amount_in_query(query) {
 }
 
 
-function format_balance(blc_org, blc_new) {
-    var sum = number(blc_org) + number(blc_new);
-    sum = sum.toString();
-    if (!/^[0-9]+\.[0-9][0-9]$/.test(sum)) {
-        var d = sum.split('.')
-        if (d.length == 1) {
-            sum = d + '.00'
-        } else if (d.length == 2) {
-            if (d[1].length > 2) {
-                sum = d[0] + '.' + d[1].slice(0, 2)
-            }
-            else if (d[1].length == 1) {
-                sum = d[0] + '.' + d[1] + '0';
-            }
-        }
-    }
-    return sum
-}
+// function format_balance(blc_org, blc_new) {
+//     var sum = number(blc_org) + number(blc_new);
+//     sum = sum.toString();
+//     if (!/^[0-9]+\.[0-9][0-9]$/.test(sum)) {
+//         var d = sum.split('.')
+//         if (d.length == 1) {
+//             sum = d + '.00'
+//         } else if (d.length == 2) {
+//             if (d[1].length > 2) {
+//                 sum = d[0] + '.' + d[1].slice(0, 2)
+//             }
+//             else if (d[1].length == 1) {
+//                 sum = d[0] + '.' + d[1] + '0';
+//             }
+//         }
+//     }
+//     return sum
+// }
 
 function p_insert(insert_query, mongo_url) {
     return new Promise((resolve, reject) => {
