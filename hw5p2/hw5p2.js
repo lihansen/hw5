@@ -12,45 +12,113 @@ const port = 3000
 // 1
 app.get('/match', (req, res) => {
     // return matches sorted by prize_usd_cents DESC
-
+    res.writeHead(204);
+    res.end();
 
 })
 
 // 2
 app.get('/match/:mid', (req, res) => {
-    
-    
+    res.writeHead(204);
+    res.end();
+
 
 
 })
 
 //3
-
+// start a new match 
 app.post('/match', (req, res) => {
-    req.query;
+    var query = req.query;
+    print(query)
+
+    if (!query.p1_id || !query.p2_id) {
+        res.writeHead(404);
+        res.end();
+    } else {
+        var pid1_in_actmth = false;
+        var pid2_in_actmth = false;
+        var pid1_blc = 100;
+        var pid2_blc = 100;
+
+        var entry_fee = undef_to_num(query.entry_fee_usd_cents);
+
+        p_find(query.p1_id, mongo_url).then(
+            (player_data) => {
+                pid1_in_actmth = player_data.in_active_match;
+                print('fuck')
+                print(player_data.in_active_match)
+            }, (err) => { throw new Error('check_palyer_in_act_match_error'); });
+
+        p_find(query.p2_id, mongo_url).then(
+            (player_data) => {
+                pid2_in_actmth = player_data.in_active_match;
+            }, (err) => { throw new Error('check_palyer_in_act_match_error'); });
+
+        print(pid1_in_actmth)
+        print(pid2_in_actmth)
+        print(pid1_blc)
+        print(pid2_blc)
+
+        if (pid1_in_actmth || pid2_in_actmth) {
+            res.writeHead(409);
+            res.end();
+        } else if (pid1_blc < entry_fee || pid2_blc < entry_fee) {
+            res.writeHead(402);
+            res.end();
+        } else {
+            // 
+
+            res.writeHead(303, { 'Location': '' });
+            res.end();
+        }
+
+    }
 
 
 })
+
+// function check_player_in_act_match(pid) {
+//     p_find(pid, mongo_url).then(
+//         (player_data) => {
+//             if (player_data.in_active_match) {
+//                 return false;
+//             } else {
+//                 return true
+//             }
+//         },
+
+//         (err) => {
+//             throw new Error('check_palyer_in_act_match_error');
+//         });
+// }
 
 
 //4
 app.post('/match/:mid/award/:pid', (req, res) => {
     req.query
-
+    res.writeHead(204);
+    res.end();
 
 })
 // 5
-app.post('/match', (req, res) => {
-    
+app.post('/match/:mid/end', (req, res) => {
 
+    res.writeHead(204);
+    res.end();
 
 })
 //6 
-app.get('/match', (req, res) => {
-    
+app.post('/match/:mid/disqualify/:pid', (req, res) => {
 
+    res.writeHead(204);
+    res.end();
 
 })
+
+
+
+
 ////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////// player //////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////
@@ -128,10 +196,16 @@ app.delete('/player/:pid', (req, res) => {
 })
 
 // 5
+
+// {
+//     fname: 'fplicjwx',
+//     lname: 'sqomcqkb',
+//     handed: 'left',
+//     initial_balance_usd_cents: '566'
+//   }
 app.post('/player', (req, res) => {
     var query = req.query;
 
-    print(query)
     var checked = check_invalid_query(query);
 
     var invalids = checked;
@@ -145,7 +219,14 @@ app.post('/player', (req, res) => {
             lname: query.lname,
             handed: handed_query_to_db[query.handed],
             is_active: query.active,
-            // balance_usd: check_balance(query.initial_balance_usd),
+
+            num_join: undef_to_num(query.num_join),
+            num_won: undef_to_num(query.num_won),
+            num_dq: undef_to_num(query.num_dq),
+            total_points: undef_to_num(query.total_points),
+            total_prize_usd_cents: undef_to_num(query.total_prize_usd_cents),
+            efficiency: undef_to_num(query.efficiency),
+            in_active_match: undef_to_str(query.in_active_match),
             balance_usd_cents: number(query.initial_balance_usd_cents),
             created_at: date,
         }
@@ -174,7 +255,7 @@ app.post('/player', (req, res) => {
 app.post('/player/:pid', (req, res) => {
     var pid = req.params.pid;
     var query = req.query;
-    // print(query)
+
     if (!query) {
         res.writeHead(303, { 'Location': '/player/' + pid });
         res.end();
@@ -232,7 +313,7 @@ app.post('/deposit/player/:pid', (req, res) => {
 
 
     //check query 
-    
+
     if (!/^[0-9]*$/.test(query.amount_usd_cents)) {
         res.writeHead(400);
         res.end();
@@ -272,9 +353,7 @@ app.post('/deposit/player/:pid', (req, res) => {
 
 })
 
-app.listen(port, () => {
-    // console.log(`Example app listening on port ${port}`)
-})
+
 
 ////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////db connection//////////////////////////////////////
@@ -332,6 +411,11 @@ const mg_client = MongoClient.connect(mongo_url);
 
 
 
+
+app.listen(port, () => {
+    // console.log(`Example app listening on port ${port}`)
+})
+
 ////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////util functions//////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////
@@ -368,9 +452,31 @@ function convert_db_to_json_player(result) {
         pid: result._id,
         name: name,
         handed: handed_db_to_json[result.handed],
-        // balance_usd: format_balance(result.balance_usd, '0'),
+        num_join: undef_to_num(result.num_join),
+        num_won: undef_to_num(result.num_won),
+        num_dq: undef_to_num(result.num_dq),
+        total_points: undef_to_num(result.total_points),
+        total_prize_usd_cents: undef_to_num(result.total_prize_usd_cents),
+        efficiency: undef_to_num(result.efficiency),
         balance_usd_cents: number(result.balance_usd_cents),
         is_active: result.is_active,
+        in_active_match: undef_to_str(result.in_active_match)
+    }
+}
+
+function undef_to_str(str) {
+    if (!str) {
+        return null;
+    } else {
+        return String(str)
+    }
+}
+
+function undef_to_num(num) {
+    if (!num) {
+        return 0;
+    } else {
+        return number(num)
     }
 }
 
@@ -393,22 +499,14 @@ function check_invalid_query(query) {
             invalids.push('handed');
         }
     }
-    // if ('initial_balance_usd' in query) {
-    //     var blc = query['initial_balance_usd'];
 
-    //     var digits = blc.split('.')
-
-    //     if (digits.length > 2 || (digits.length == 2 && digits[1].length > 2)) {
-    //         invalids.push('initial_balance_usd');
-    //     }
-    // }
 
     if ('initial_balance_usd_cents' in query) {
         var blc = query['balance_usd'];
         if (!/^[0-9]*$/.test(query.initial_balance_usd_cents)) {
             invalids.push('initial_balance_usd_cents');
         }
-        
+
     }
     if ('active' in query) {
         if (query['active'] == true || query['active'] == false) {
@@ -419,7 +517,6 @@ function check_invalid_query(query) {
     } else { query['active'] = true; }
     return invalids
 }
-exports.x = check_invalid_query
 
 function fill_empty_fields(query) {
 
@@ -430,30 +527,7 @@ function fill_empty_fields(query) {
     }
 }
 
-// function check_balance(sum) {
-//     if (!/^[0-9]+\.[0-9][0-9]$/.test(sum)) {
-//         var d = sum.split('.')
-//         if (d.length == 1) {
-//             sum = d + '.00'
-//         } else if (d.length == 2) {
-//             if (d[1].length > 2) {
-//                 sum = d[0] + '.' + d[1].slice(0, 2)
-//             } else if (d[1].length == 0) {
-//                 sum = d[0] + '.00';
-//             }
-//             else if (d[1].length == 1) {
-//                 sum = d[0] + '.' + d[1] + '0';
-//             }
-//         }
 
-//     }
-//     return sum
-// }
-
-
-function print(a) {
-    console.log(a);
-}
 
 
 function p_update(pid, mongo_url, update_query) {
@@ -510,30 +584,6 @@ function p_find(pid, mongo_url) {
 
 
 
-function check_valid_amount_in_query(query) {
-
-    if ("amount_usd" in query) {
-        var blc = query['amount_usd'];
-        if (/^[0-9]+\.[0-9][0-9]$/.test(blc)
-
-            || /^[0-9]+$/.test(blc)
-
-            || /^[0-9]+\.$/.test(blc)
-
-            || /^[0-9]+\.[0-9]$/.test(blc)
-        ) {
-            //valid query amount 
-            return true;
-        } else {
-            return false
-        }
-
-    } else {
-        return false;
-    }
-}
-
-
 
 
 function p_insert(insert_query, mongo_url) {
@@ -559,4 +609,12 @@ function p_insert(insert_query, mongo_url) {
             });
         });
     })
+}
+
+exports.x = check_invalid_query
+
+
+
+function print(a) {
+    console.log(a);
 }

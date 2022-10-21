@@ -31,7 +31,7 @@ describe('POST /match', function() {
       return fix.test_forward(DEFAULT_METHOD, DEFAULT_PATH, ps, 303);
     });
 
-    it('response_code 402 insufficient balance', async function () {
+    it.only('response_code 402 insufficient balance', async function () {
       const balance_usd_cents = 100;
       const entry_fee_usd_cents = 200;
   
