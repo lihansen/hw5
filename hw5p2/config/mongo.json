@@ -1,1 +1,1 @@
-{"host":"mongo","port":"27017","db":"ee547_hw","opts":{"useUnifiedTopology":true}}
+{"host":"localhost","port":"27017","db":"ee547_hw","opts":{"useUnifiedTopology":true}}
