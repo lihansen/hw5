@@ -96,7 +96,7 @@ app.get('/match', (req, res) => {
 // 2
 app.get('/match/:mid', (req, res) => {
     var query = req.query;
-    var mid = query.mid;
+    var mid = req.params.mid;
     const db = req.app.locals.db;
     var mido = new ObjectId(query.mid);
     db.collection('mactch').findOne({ '_id': mido }, function (err, m_result) {
@@ -205,10 +205,10 @@ app.post('/match/:mid/award/:pid', (req, res) => {
         res.end();
     } else {
         var points = undef_to_num(query.points);
-        var winner_id = query.pid;
+        var winner_id = req.params.pid;
         var winnner_ido = new ObjectId(winnner_id);
 
-        var mid = query.mid;
+        var mid = req.params.mid;
         var mido = new ObjectId(mid);
 
         db.collection('player').findOne({ "_id": winnner_ido }, function (err, p_data) {
@@ -227,8 +227,8 @@ app.post('/match/:mid/award/:pid', (req, res) => {
                         res.writeHead(400);
                         res.end();
                     } else {
-                        if ()
-                        res.writeHead(204);
+                        db.collection('player').updateOne()
+                        res.writeHead(200);
                         res.end();
                     }
                 })
@@ -242,16 +242,107 @@ app.post('/match/:mid/award/:pid', (req, res) => {
 })
 // 5
 app.post('/match/:mid/end', (req, res) => {
+    // find the match 
+    let query = req.query;
+    let mid = req.params.mid;
+    let mido = new ObjectId(mid);
+    const db = req.app.locals.db;
 
-    res.writeHead(204);
-    res.end();
+    db.collection('match').findOne({ '_id': mido }, function (err, m_result) {
+        if (err) throw new Error(err.stack);
+        if (m_result) {
+            // not active or  tied => 409 
+            if (!m_result.is_active || m_result.p1_points == m_result.p2_points) {
+                res.writeHead(409);
+                res.end();
+            } else {
+                let now_date = new Date();
+                // construct m_update_query
+                let m_update_query = {
+                    ended_at: now_date,
+                }
+                // award prize to win player  
+                let win_ply;
+                if (m_result.p1_points > m_result.p2_points) {
+                    win_ply = m_result.p1_id;
+                } else {
+                    win_ply = m_result.p2_id;
+                }
+                // update winplayer 
+                db.collection('player').updateOne(
+                    { _id: ObjectId(win_ply) },
+                    { $inc: { total_prize_usd_cents: m_data.prize_usd_cents } },
+                    function (err, ply_update_result) {
+                        if (err) throw new Error(err.stack);
 
+                        if (ply_update_result && ply_update_result.length == 1) {
+
+                            // update match, update ended_at, update is_active 
+                            db.collection('match').updateOne({ _id: mido },
+                                { $set: { ended_at: Date(), is_active: false } },
+                                function (err, mch_update_result) {
+                                    if (err) throw new Error(err.stack);
+                                    if (mch_update_result && mch_update_result.length == 1) {
+                                        // construct a response json 
+                                        let m_json = {
+
+                                        }
+
+                                        // success => 200 
+                                        res.writeHead(200);
+                                        // response json is match object
+                                        res.write(JSON.stringify());
+                                        res.end();
+                                    } else { throw new Error("update_fail"); }
+                                })
+
+
+                        } else { throw new Error('ply_update_fail') }
+                    })
+            }
+        } else {
+            res.writeHead(404);
+            res.end();
+        }
+    })
 })
+
+
+
 //6 
 app.post('/match/:mid/disqualify/:pid', (req, res) => {
+    let mid = req.params.mid;
+    let pid = req.params.pid;
 
-    res.writeHead(204);
-    res.end();
+
+    db.collection('match').findOne(
+        { _id: ObjectId(mid) },
+        function (err, m_result) {
+            if (err) throw new Error(err.stack);
+
+            if (m_result){
+                if (!m_result.is_active){
+                    res.writeHead(409);
+                    res.end();
+                }else{
+                    // find player 
+                    db.collection('player').findOne(
+                        {_id: ObjectId(pid)},
+                        function (err, ply_result){
+                            if (err) throw new Error(err.stack);
+                            if (ply_result){
+                                
+                            }
+                        }
+                    )
+                    
+                }
+            }else{
+                res.writeHead(404);
+                res.end();
+            }
+        })
+
 
 })
 
@@ -557,11 +648,6 @@ MongoClient.connect(mongo_url, (err, db) => {
 
     var dbo = db.db(config_json.db);
     app.locals.db = dbo;
-
-
-
-
-
 
 
     app.listen(server_port, () => {
