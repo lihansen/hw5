@@ -317,27 +317,43 @@ app.post('/match/:mid/disqualify/:pid', (req, res) => {
 
     db.collection('match').findOne(
         { _id: ObjectId(mid) },
-        function (err, m_result) {
+        function (err, mch_result) {
             if (err) throw new Error(err.stack);
 
-            if (m_result){
-                if (!m_result.is_active){
+            if (mch_result) {
+                if (!mch_result.is_active) {
+                    // match not active 
                     res.writeHead(409);
                     res.end();
-                }else{
+                } else {
                     // find player 
                     db.collection('player').findOne(
-                        {_id: ObjectId(pid)},
-                        function (err, ply_result){
+                        { _id: ObjectId(pid) },
+                        function (err, ply_result) {
                             if (err) throw new Error(err.stack);
-                            if (ply_result){
-                                
+                            if (ply_result) {
+                                // player in the match 
+                                if (mch_result.p1_id != ply_result._id &&
+                                    mch_result.p2_id != ply_result._id) {
+                                    // player is not in match
+                                    res.writeHead(400);
+                                    res.end();
+                                } else {
+
+                                }
+
+
+                            } else {
+                                // plyer does not exist
+                                res.writeHead(404);
+                                res.end();
                             }
                         }
                     )
-                    
+
                 }
-            }else{
+            } else {
+                // match does not exist
                 res.writeHead(404);
                 res.end();
             }
