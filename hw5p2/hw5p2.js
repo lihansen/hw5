@@ -1,104 +1,243 @@
 const fs = require('fs');
 const http = require('http');
-const { reject } = require('lodash');
+const { reject, pad } = require('lodash');
 const { number, ParenthesisNodeDependencies } = require('mathjs');
 const { ObjectId } = require('mongodb');
 const { resolve } = require('path');
 const url = require('url');
 const express = require('express')
 const app = express()
-const port = 3000
+const server_port = 3000
+
+
+// mid string match id
+// entry_fee_usd_cents int currency
+// p1_id string player 1 id
+// p1_name string (see Player.name)
+// p1_points int
+// p2_id string player 2 id
+// p2_name string (see Player.name)
+// p2_points int
+// winner_pid string|null null if active
+// is_dq boolean true if end in dq
+// is_active boolean
+// prize_usd_cents int currency
+// age int seconds since create
+// ended_at string ISO-8601 (date+time)
+// }
+function convert_db_to_json_match(mch_db_obj) {
+    return {
+        // mid: m_data_id,
+        // entry_fee_usd_cents: m_data.entry_fee_usd_cents,
+        // p1_id: m_data.p1_id,
+        // p2_id: m_data.p2_id,
+        // p1_name: m_data.p1_name,
+        // p2_name: m_data.p2_name,
+        // winner_pid: 
+        // is_dq: 
+        // is_active:
+        // prize_usd_cents
+        // age: 
+        // ended_at: 
+
+    }
+
+}
 
 // 1
 app.get('/match', (req, res) => {
     // return matches sorted by prize_usd_cents DESC
-    res.writeHead(204);
-    res.end();
+    const db = req.app.locals.db;
 
+    db.collection(config_json.collection)
+        .find({}).toArray(function (err, m_objs) {
+            if (err) {
+                throw new Error(err.stack);
+            }
+
+
+            var act_mchs = []
+            var inact_mchs = []
+
+            for (var m of m_objs) {
+                if (m.is_active) {
+                    act_mchs.push(convert_db_to_json_match(m));
+                } else {
+                    inact_mchs.push(convert_db_to_json_match(m));
+                }
+            }
+
+            // sort by active prize, decrease order
+            act_mchs.sort(function (m1, m2) {
+                if (m1.prize_usd_cents > m2.prize_usd_cents) return -1;
+                return 1;
+            });
+
+            // inact sort by end_at, decrease order 
+            inact_mchs.sort(function (m1, m2) {
+                if (m1.ended_at > m2.ended_at) return -1;
+                return 1;
+            });
+
+            if (inact_mchs.length > 4) {
+                inact_mchs.slice
+            }
+
+
+            // useless
+            res.writeHead(200);
+            res.write(JSON.stringify(res_mches));
+            res.end();
+
+        });
 })
+
 
 // 2
 app.get('/match/:mid', (req, res) => {
-    res.writeHead(204);
-    res.end();
+    var query = req.query;
+    var mid = query.mid;
+    const db = req.app.locals.db;
+    var mido = new ObjectId(query.mid);
+    db.collection('mactch').findOne({ '_id': mido }, function (err, m_result) {
+        if (err) {
+            throw new Error(err.stack);
+        }
 
+        if (m_result) {
+            var m_data = convert_db_to_json_match(m_data);
+            res.writeHead(200);
+            res.write(JSON.stringify(m_data));
+            res.end();
 
-
+        } else {
+            res.writeHead(404);
+            res.end();
+        }
+    })
 })
+
 
 //3
 // start a new match 
 app.post('/match', (req, res) => {
     var query = req.query;
-    print(query)
+    const db = req.app.locals.db;
+
+    var entry_fee = undef_to_num(query.entry_fee_usd_cents);
+    var prize = undef_to_num(query.prize_usd_cents);
 
     if (!query.p1_id || !query.p2_id) {
         res.writeHead(404);
         res.end();
+    } else if (!check_dig_str(query.entry_fee_usd_cents) || !check_dig_str(query.prize_usd_cents)) {
+        res.writeHead(400);
+        res.end();
     } else {
-        var pid1_in_actmth = false;
-        var pid2_in_actmth = false;
-        var pid1_blc = 100;
-        var pid2_blc = 100;
+        var pido1 = new ObjectId(query.p1_id);
+        var pido2 = new ObjectId(query.p2_id);
 
-        var entry_fee = undef_to_num(query.entry_fee_usd_cents);
+        db.collection(config_json.collection)
+            .findOne({ _id: ObjectId(query.p1_id) }, function (err, p1_data) {
 
-        p_find(query.p1_id, mongo_url).then(
-            (player_data) => {
-                pid1_in_actmth = player_data.in_active_match;
-                print('fuck')
-                print(player_data.in_active_match)
-            }, (err) => { throw new Error('check_palyer_in_act_match_error'); });
-
-        p_find(query.p2_id, mongo_url).then(
-            (player_data) => {
-                pid2_in_actmth = player_data.in_active_match;
-            }, (err) => { throw new Error('check_palyer_in_act_match_error'); });
-
-        print(pid1_in_actmth)
-        print(pid2_in_actmth)
-        print(pid1_blc)
-        print(pid2_blc)
-
-        if (pid1_in_actmth || pid2_in_actmth) {
-            res.writeHead(409);
-            res.end();
-        } else if (pid1_blc < entry_fee || pid2_blc < entry_fee) {
-            res.writeHead(402);
-            res.end();
-        } else {
-            // 
-
-            res.writeHead(303, { 'Location': '' });
-            res.end();
-        }
-
+                if (!p1_data) {
+                    res.writeHead(404);
+                    res.end();
+                } else {
+                    db.collection(config_json.collection)
+                        .findOne({ _id: ObjectId(query.p2_id) }, function (err, p2_data) {
+                            if (!p2_data) {
+                                res.writeHead(404);
+                                res.end();
+                            } else if (p1_data.in_active_match || p2_data.in_active_match) {
+                                res.writeHead(409);
+                                res.end();
+                            } else if (p1_data.balance_usd_cents < entry_fee ||
+                                p2_data.balance_usd_cents < entry_fee) {
+                                res.writeHead(402);
+                                res.end();
+                            } else {
+                                var date_now = new Date();
+                                var insert_query = {
+                                    created_at: date_now,
+                                    ended_at: null,
+                                    entry_fee_usd_cents: entry_fee,
+                                    is_dq: false,
+                                    p1_id: pido1,
+                                    p1_points: undef_to_num(p1_data.total_points),
+                                    p2_id: pido2,
+                                    p2_points: undef_to_num(p2_data.total_points),
+                                    prize_usd_cents: prize
+                                }
+                                db.collection('match')
+                                    .insertOne(insert_query, function (err, insert_result) {
+                                        if (err) {
+                                            throw new Error(err.stack);
+                                        } else {
+                                            if (insert_result) {
+                                                var inserted_id = insert_result.insertedId.toString();
+                                                // print(insert_result);
+                                                res.writeHead(303, { 'Location': '/match/' + inserted_id });
+                                                res.end();
+                                            } else {
+                                                res.writeHead(400);
+                                                res.end();
+                                            }
+                                        }
+                                    })
+                            }
+                        })
+                }
+            });
     }
-
-
 })
 
-// function check_player_in_act_match(pid) {
-//     p_find(pid, mongo_url).then(
-//         (player_data) => {
-//             if (player_data.in_active_match) {
-//                 return false;
-//             } else {
-//                 return true
-//             }
-//         },
-
-//         (err) => {
-//             throw new Error('check_palyer_in_act_match_error');
-//         });
-// }
 
 
 //4
 app.post('/match/:mid/award/:pid', (req, res) => {
-    req.query
-    res.writeHead(204);
-    res.end();
+    var query = req.query;
+    const db = req.app.locals.db;
+
+
+    if (!check_dig_str(query.points)) {
+        res.writeHead(400);
+        res.end();
+    } else {
+        var points = undef_to_num(query.points);
+        var winner_id = query.pid;
+        var winnner_ido = new ObjectId(winnner_id);
+
+        var mid = query.mid;
+        var mido = new ObjectId(mid);
+
+        db.collection('player').findOne({ "_id": winnner_ido }, function (err, p_data) {
+            if (!p_data) {
+                res.writeHead(404);
+                res.end();
+            } else {
+                db.collection('match').findOne({ '_id': mido }, function (err, m_data) {
+                    if (!m_data) {
+                        res.writeHead(404);
+                        res.end();
+                    } else if (m_data.is_active == false) {
+                        res.writeHead(409);
+                        res.end();
+                    } else if (p_data.in_active_match != mid) {
+                        res.writeHead(400);
+                        res.end();
+                    } else {
+                        if ()
+                        res.writeHead(204);
+                        res.end();
+                    }
+                })
+            }
+        })
+
+
+    }
+
 
 })
 // 5
@@ -203,11 +342,12 @@ app.delete('/player/:pid', (req, res) => {
 //     handed: 'left',
 //     initial_balance_usd_cents: '566'
 //   }
+
 app.post('/player', (req, res) => {
     var query = req.query;
 
     var checked = check_invalid_query(query);
-
+    const db = req.app.locals.db;
     var invalids = checked;
     fill_empty_fields(query);
 
@@ -231,7 +371,7 @@ app.post('/player', (req, res) => {
             created_at: date,
         }
 
-        p_insert(document, mongo_url).then(
+        p_insert(document, db).then(
             (data) => {
                 var new_id = data.insertedId.toString();
                 res.writeHead(303, { 'Location': '/player/' + new_id.toString() });
@@ -407,14 +547,30 @@ if (!("collection" in config_json)) {
 const mongo_url = 'mongodb://' + config_json.host + ':' + config_json.port;
 var MongoClient = require('mongodb').MongoClient;
 
-const mg_client = MongoClient.connect(mongo_url);
+// const mg_client = MongoClient.connect(mongo_url);
+
+MongoClient.connect(mongo_url, (err, db) => {
+    if (err) {
+        //   logger.warn(`Failed to connect to the database. ${err.stack}`);
+        // throw new Error(err.stack);
+    }
+
+    var dbo = db.db(config_json.db);
+    app.locals.db = dbo;
 
 
 
 
-app.listen(port, () => {
-    // console.log(`Example app listening on port ${port}`)
-})
+
+
+
+    app.listen(server_port, () => {
+        // console.log(`Node.js app is listening at http://localhost:${server_port}`);
+    });
+});
+
+
+
 
 ////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////util functions//////////////////////////////////////
@@ -586,29 +742,31 @@ function p_find(pid, mongo_url) {
 
 
 
-function p_insert(insert_query, mongo_url) {
+function p_insert(insert_query, db) {
     return new Promise((resolve, reject) => {
-        MongoClient.connect(mongo_url, function (err, db) {
-            if (err) {
-                process.exit(5);
-            }
-            var dbo = db.db(config_json.db);
-            dbo.collection(config_json.collection).insertOne(insert_query, function (err, result) {
-                if (err) {
-                    print('p_insert error:')
-                    print(err)
-                    throw new Error(err);
-                }
 
-                if (result) {
-                    resolve(result);
-                } else {
-                    reject(new Error('insert reject'));
-                }
-                db.close()
-            });
+        var dbo = db;
+        dbo.collection(config_json.collection).insertOne(insert_query, function (err, result) {
+            if (err) {
+                print('p_insert error:')
+                print(err)
+                throw new Error(err);
+            }
+
+            if (result) {
+                resolve(result);
+            } else {
+                reject(new Error('insert reject'));
+            }
+            // db.close()
         });
+
     })
+}
+
+
+function check_dig_str(str) {
+    return /^[0-9]*$/.test(str);
 }
 
 exports.x = check_invalid_query
