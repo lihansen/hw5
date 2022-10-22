@@ -206,7 +206,7 @@ app.post('/match/:mid/award/:pid', (req, res) => {
     } else {
         var points = undef_to_num(query.points);
         var winner_id = req.params.pid;
-        var winnner_ido = new ObjectId(winnner_id);
+        var winnner_ido = new ObjectId(winner_id);
 
         var mid = req.params.mid;
         var mido = new ObjectId(mid);
@@ -325,31 +325,31 @@ app.post('/match/:mid/disqualify/:pid', (req, res) => {
                     // match not active 
                     res.writeHead(409);
                     res.end();
+                } else if (mch_result.p1_id != pid && mch_result.p2_id != pid) {
+                    // player is not in the match
+                    res.writeHead(400);
+                    res.end();
                 } else {
-                    // find player 
-                    db.collection('player').findOne(
-                        { _id: ObjectId(pid) },
-                        function (err, ply_result) {
-                            if (err) throw new Error(err.stack);
-                            if (ply_result) {
-                                // player in the match 
-                                if (mch_result.p1_id != ply_result._id &&
-                                    mch_result.p2_id != ply_result._id) {
-                                    // player is not in match
-                                    res.writeHead(400);
-                                    res.end();
-                                } else {
+                    let winner_id;
+                    
 
-                                }
+                    // }
+                    // // find player 
+                    // db.collection('player').findOne(
+                    //     { _id: ObjectId(pid) },
+                    //     function (err, ply_result) {
+                    //         if (err) throw new Error(err.stack);
+                    //         if (ply_result) {
 
 
-                            } else {
-                                // plyer does not exist
-                                res.writeHead(404);
-                                res.end();
-                            }
-                        }
-                    )
+
+                    //         } else {
+                    //             // plyer does not exist
+                    //             res.writeHead(404);
+                    //             res.end();
+                    //         }
+                    //     }
+                    // )
 
                 }
             } else {
