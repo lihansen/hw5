@@ -1,6 +1,6 @@
 const fs = require('fs');
 const http = require('http');
-const { reject, pad } = require('lodash');
+const { reject, pad, result, find, merge } = require('lodash');
 const { number, ParenthesisNodeDependencies } = require('mathjs');
 const { ObjectId } = require('mongodb');
 const { resolve } = require('path');
@@ -8,361 +8,6 @@ const url = require('url');
 const express = require('express')
 const app = express()
 const server_port = 3000
-
-
-// mid string match id
-// entry_fee_usd_cents int currency
-// p1_id string player 1 id
-// p1_name string (see Player.name)
-// p1_points int
-// p2_id string player 2 id
-// p2_name string (see Player.name)
-// p2_points int
-// winner_pid string|null null if active
-// is_dq boolean true if end in dq
-// is_active boolean
-// prize_usd_cents int currency
-// age int seconds since create
-// ended_at string ISO-8601 (date+time)
-// }
-function convert_db_to_json_match(mch_db_obj) {
-    return {
-        // mid: m_data_id,
-        // entry_fee_usd_cents: m_data.entry_fee_usd_cents,
-        // p1_id: m_data.p1_id,
-        // p2_id: m_data.p2_id,
-        // p1_name: m_data.p1_name,
-        // p2_name: m_data.p2_name,
-        // winner_pid: 
-        // is_dq: 
-        // is_active:
-        // prize_usd_cents
-        // age: 
-        // ended_at: 
-
-    }
-
-}
-
-// 1
-app.get('/match', (req, res) => {
-    // return matches sorted by prize_usd_cents DESC
-    const db = req.app.locals.db;
-
-    db.collection(config_json.collection)
-        .find({}).toArray(function (err, m_objs) {
-            if (err) {
-                throw new Error(err.stack);
-            }
-
-
-            var act_mchs = []
-            var inact_mchs = []
-
-            for (var m of m_objs) {
-                if (m.is_active) {
-                    act_mchs.push(convert_db_to_json_match(m));
-                } else {
-                    inact_mchs.push(convert_db_to_json_match(m));
-                }
-            }
-
-            // sort by active prize, decrease order
-            act_mchs.sort(function (m1, m2) {
-                if (m1.prize_usd_cents > m2.prize_usd_cents) return -1;
-                return 1;
-            });
-
-            // inact sort by end_at, decrease order 
-            inact_mchs.sort(function (m1, m2) {
-                if (m1.ended_at > m2.ended_at) return -1;
-                return 1;
-            });
-
-            if (inact_mchs.length > 4) {
-                inact_mchs.slice
-            }
-
-
-            // useless
-            res.writeHead(200);
-            res.write(JSON.stringify(res_mches));
-            res.end();
-
-        });
-})
-
-
-// 2
-app.get('/match/:mid', (req, res) => {
-    var query = req.query;
-    var mid = req.params.mid;
-    const db = req.app.locals.db;
-    var mido = new ObjectId(query.mid);
-    db.collection('mactch').findOne({ '_id': mido }, function (err, m_result) {
-        if (err) {
-            throw new Error(err.stack);
-        }
-
-        if (m_result) {
-            var m_data = convert_db_to_json_match(m_data);
-            res.writeHead(200);
-            res.write(JSON.stringify(m_data));
-            res.end();
-
-        } else {
-            res.writeHead(404);
-            res.end();
-        }
-    })
-})
-
-
-//3
-// start a new match 
-app.post('/match', (req, res) => {
-    var query = req.query;
-    const db = req.app.locals.db;
-
-    var entry_fee = undef_to_num(query.entry_fee_usd_cents);
-    var prize = undef_to_num(query.prize_usd_cents);
-
-    if (!query.p1_id || !query.p2_id) {
-        res.writeHead(404);
-        res.end();
-    } else if (!check_dig_str(query.entry_fee_usd_cents) || !check_dig_str(query.prize_usd_cents)) {
-        res.writeHead(400);
-        res.end();
-    } else {
-        var pido1 = new ObjectId(query.p1_id);
-        var pido2 = new ObjectId(query.p2_id);
-
-        db.collection(config_json.collection)
-            .findOne({ _id: ObjectId(query.p1_id) }, function (err, p1_data) {
-
-                if (!p1_data) {
-                    res.writeHead(404);
-                    res.end();
-                } else {
-                    db.collection(config_json.collection)
-                        .findOne({ _id: ObjectId(query.p2_id) }, function (err, p2_data) {
-                            if (!p2_data) {
-                                res.writeHead(404);
-                                res.end();
-                            } else if (p1_data.in_active_match || p2_data.in_active_match) {
-                                res.writeHead(409);
-                                res.end();
-                            } else if (p1_data.balance_usd_cents < entry_fee ||
-                                p2_data.balance_usd_cents < entry_fee) {
-                                res.writeHead(402);
-                                res.end();
-                            } else {
-                                var date_now = new Date();
-                                var insert_query = {
-                                    created_at: date_now,
-                                    ended_at: null,
-                                    entry_fee_usd_cents: entry_fee,
-                                    is_dq: false,
-                                    p1_id: pido1,
-                                    p1_points: undef_to_num(p1_data.total_points),
-                                    p2_id: pido2,
-                                    p2_points: undef_to_num(p2_data.total_points),
-                                    prize_usd_cents: prize
-                                }
-                                db.collection('match')
-                                    .insertOne(insert_query, function (err, insert_result) {
-                                        if (err) {
-                                            throw new Error(err.stack);
-                                        } else {
-                                            if (insert_result) {
-                                                var inserted_id = insert_result.insertedId.toString();
-                                                // print(insert_result);
-                                                res.writeHead(303, { 'Location': '/match/' + inserted_id });
-                                                res.end();
-                                            } else {
-                                                res.writeHead(400);
-                                                res.end();
-                                            }
-                                        }
-                                    })
-                            }
-                        })
-                }
-            });
-    }
-})
-
-
-
-//4
-app.post('/match/:mid/award/:pid', (req, res) => {
-    var query = req.query;
-    const db = req.app.locals.db;
-
-
-    if (!check_dig_str(query.points)) {
-        res.writeHead(400);
-        res.end();
-    } else {
-        var points = undef_to_num(query.points);
-        var winner_id = req.params.pid;
-        var winnner_ido = new ObjectId(winner_id);
-
-        var mid = req.params.mid;
-        var mido = new ObjectId(mid);
-
-        db.collection('player').findOne({ "_id": winnner_ido }, function (err, p_data) {
-            if (!p_data) {
-                res.writeHead(404);
-                res.end();
-            } else {
-                db.collection('match').findOne({ '_id': mido }, function (err, m_data) {
-                    if (!m_data) {
-                        res.writeHead(404);
-                        res.end();
-                    } else if (m_data.is_active == false) {
-                        res.writeHead(409);
-                        res.end();
-                    } else if (p_data.in_active_match != mid) {
-                        res.writeHead(400);
-                        res.end();
-                    } else {
-                        db.collection('player').updateOne()
-                        res.writeHead(200);
-                        res.end();
-                    }
-                })
-            }
-        })
-
-
-    }
-
-
-})
-// 5
-app.post('/match/:mid/end', (req, res) => {
-    // find the match 
-    let query = req.query;
-    let mid = req.params.mid;
-    let mido = new ObjectId(mid);
-    const db = req.app.locals.db;
-
-    db.collection('match').findOne({ '_id': mido }, function (err, m_result) {
-        if (err) throw new Error(err.stack);
-        if (m_result) {
-            // not active or  tied => 409 
-            if (!m_result.is_active || m_result.p1_points == m_result.p2_points) {
-                res.writeHead(409);
-                res.end();
-            } else {
-                let now_date = new Date();
-                // construct m_update_query
-                let m_update_query = {
-                    ended_at: now_date,
-                }
-                // award prize to win player  
-                let win_ply;
-                if (m_result.p1_points > m_result.p2_points) {
-                    win_ply = m_result.p1_id;
-                } else {
-                    win_ply = m_result.p2_id;
-                }
-                // update winplayer 
-                db.collection('player').updateOne(
-                    { _id: ObjectId(win_ply) },
-                    { $inc: { total_prize_usd_cents: m_data.prize_usd_cents } },
-                    function (err, ply_update_result) {
-                        if (err) throw new Error(err.stack);
-
-                        if (ply_update_result && ply_update_result.length == 1) {
-
-                            // update match, update ended_at, update is_active 
-                            db.collection('match').updateOne({ _id: mido },
-                                { $set: { ended_at: Date(), is_active: false } },
-                                function (err, mch_update_result) {
-                                    if (err) throw new Error(err.stack);
-                                    if (mch_update_result && mch_update_result.length == 1) {
-                                        // construct a response json 
-                                        let m_json = {
-
-                                        }
-
-                                        // success => 200 
-                                        res.writeHead(200);
-                                        // response json is match object
-                                        res.write(JSON.stringify());
-                                        res.end();
-                                    } else { throw new Error("update_fail"); }
-                                })
-
-
-                        } else { throw new Error('ply_update_fail') }
-                    })
-            }
-        } else {
-            res.writeHead(404);
-            res.end();
-        }
-    })
-})
-
-
-
-//6 
-app.post('/match/:mid/disqualify/:pid', (req, res) => {
-    let mid = req.params.mid;
-    let pid = req.params.pid;
-
-
-    db.collection('match').findOne(
-        { _id: ObjectId(mid) },
-        function (err, mch_result) {
-            if (err) throw new Error(err.stack);
-
-            if (mch_result) {
-                if (!mch_result.is_active) {
-                    // match not active 
-                    res.writeHead(409);
-                    res.end();
-                } else if (mch_result.p1_id != pid && mch_result.p2_id != pid) {
-                    // player is not in the match
-                    res.writeHead(400);
-                    res.end();
-                } else {
-                    let winner_id;
-                    
-
-                    // }
-                    // // find player 
-                    // db.collection('player').findOne(
-                    //     { _id: ObjectId(pid) },
-                    //     function (err, ply_result) {
-                    //         if (err) throw new Error(err.stack);
-                    //         if (ply_result) {
-
-
-
-                    //         } else {
-                    //             // plyer does not exist
-                    //             res.writeHead(404);
-                    //             res.end();
-                    //         }
-                    //     }
-                    // )
-
-                }
-            } else {
-                // match does not exist
-                res.writeHead(404);
-                res.end();
-            }
-        })
-
-
-})
-
-
 
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -441,6 +86,9 @@ app.delete('/player/:pid', (req, res) => {
     })
 })
 
+
+
+
 // 5
 
 // {
@@ -498,6 +146,8 @@ app.post('/player', (req, res) => {
 })
 
 
+
+
 // 6
 app.post('/player/:pid', (req, res) => {
     var pid = req.params.pid;
@@ -553,6 +203,9 @@ app.post('/player/:pid', (req, res) => {
 })
 
 
+
+
+
 // 7
 app.post('/deposit/player/:pid', (req, res) => {
     var pid = req.params.pid;
@@ -585,9 +238,6 @@ app.post('/deposit/player/:pid', (req, res) => {
                         res.end();
                     })
 
-
-
-
             }, (err) => {
                 // player not found 
                 res.writeHead(404);
@@ -600,7 +250,427 @@ app.post('/deposit/player/:pid', (req, res) => {
 
 })
 
+////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////// match //////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
 
+
+
+
+function convert_db_to_json_match(mch_result) {
+    return {
+        mid: mch_result._id,
+        entry_fee_usd_cents: mch_result.entry_fee_usd_cents,
+        p1_id: undef_to_str(mch_result.p1_id),
+        p2_id: undef_to_str(mch_result.p2_id),
+        p1_name: undef_to_str(mch_result.p1_name),
+        p2_name: undef_to_str(mch_result.p2_name),
+        p1_points: undef_to_num(mch_result.p1_points),
+        p2_points: undef_to_num(mch_result.p2_points),
+        winner_pid: undef_to_str(mch_result.winner_pid),
+        is_dq: decorate_bool(mch_result.is_dq),
+        is_active: decorate_bool(mch_result.is_active),
+        prize_usd_cents: (mch_result.prize_usd_cents),
+        // age: Math.abs(Date() - mch_result.created_at) / 1000,
+        age:2,
+        ended_at: undef_to_str(mch_result.ended_at)
+
+    }
+
+}
+function decorate_bool(a) {
+    if (typeof (a) == 'undefined') return true;
+    return a
+}
+
+
+
+
+// 1
+app.get('/match', (req, res) => {
+    // return matches sorted by prize_usd_cents DESC
+    const db = req.app.locals.db;
+
+    db.collection('match')
+        .find({}).toArray(function (err, m_objs) {
+            if (err) {
+                throw new Error(err.stack);
+            }
+
+            var act_mchs = []
+            var inact_mchs = []
+            // print(m_objs)
+            for (var m of m_objs) {
+                if (m.ended_at != null) {
+                    act_mchs.push(convert_db_to_json_match(m));
+                } else {
+                    inact_mchs.push(convert_db_to_json_match(m));
+                }
+            }
+
+            // sort by active prize, decrease order
+            act_mchs.sort(function (m1, m2) {
+                if (m1.prize_usd_cents > m2.prize_usd_cents) return -1;
+                return 1;
+            });
+
+            // inact sort by end_at, decrease order 
+            inact_mchs.sort(function (m1, m2) {
+                if (m1.ended_at > m2.ended_at) return -1;
+                return 1;
+            });
+
+            if (inact_mchs.length > 4) {
+                inact_mchs = inact_mchs.slice(0,4)
+            }
+            
+            var r_data = act_mchs.concat(inact_mchs);
+            // if (r_data.length > 4) {
+            //     r_data = r_data.slice(0,4)
+            // }
+            res.writeHead(200);
+            res.write(JSON.stringify(r_data));
+            res.end();
+
+        });
+})
+
+
+
+
+// 2
+app.get('/match/:mid', (req, res) => {
+    var query = req.query;
+    var mid = req.params.mid;
+    const db = req.app.locals.db;
+    // print(mid)
+    if (req.params.mid.length != 24) {
+        res.writeHead(404);
+        res.end()
+    } else {
+        db.collection('match').findOne({ '_id': ObjectId(mid) }, function (err, m_result) {
+            if (err) {
+                throw new Error(err.stack);
+            }
+            // print(m_result)
+            if (m_result) {
+                var m_data = convert_db_to_json_match(m_result);
+                // print(m_data)
+                res.writeHead(200);
+                res.write(JSON.stringify(m_data));
+                res.end();
+
+            } else {
+                // match not exists
+                res.writeHead(404);
+                res.end();
+            }
+        })
+    }
+
+
+
+})
+
+
+
+
+
+//3
+// start a new match 
+app.post('/match', (req, res) => {
+    var query = req.query;
+    const db = req.app.locals.db;
+    if (!check_dig_str(query.entry_fee_usd_cents) &&
+        !check_dig_str(query.entry_fee_usd_cents)) {
+        res.writeHead(400);
+        res.end();
+    } else {
+        var entry_fee = undef_to_num(query.entry_fee_usd_cents);
+        var prize = undef_to_num(query.prize_usd_cents);
+        let pid1 = query.p1_id;
+        let pid2 = query.p2_id;
+
+        Promise.all([
+            find_one(db, 'player', { _id: ObjectId(pid1) }),
+            find_one(db, 'player', { _id: ObjectId(pid2) })
+        ])
+            .then(
+                (result) => {
+                    let p1_result = result[0];
+                    let p2_result = result[1];
+
+                    if (!p1_result || !p2_result) {
+                        return 404;
+                    }
+
+                    if (p1_result.in_active_match || p2_result.in_active_match) {
+                        return 409;
+                    }
+                    if (p1_result.balance_usd_cents < entry_fee ||
+                        p2_result.balance_usd_cents < entry_fee) {
+                        return 402;
+                    }
+
+                    var date_now = new Date();
+                    var insert_query = {
+                        created_at: date_now,
+                        ended_at: null,
+                        entry_fee_usd_cents: entry_fee,
+                        is_dq: false,
+                        p1_id: ObjectId(pid1),
+                        p1_points: undef_to_num(p1_result.total_points),
+                        p1_name: p1_result.fname + " " + p1_result.lname,
+                        p2_name: p2_result.fname + " " + p2_result.lname,
+                        p2_id: ObjectId(pid2),
+                        p2_points: undef_to_num(p2_result.total_points),
+                        prize_usd_cents: prize
+                    };
+
+                    return Promise.all([
+                        insert_one(db, 'match', insert_query),
+                        update_one(db, 'player', { _id: ObjectId(pid1) },
+                            {
+                                $inc: { balance_usd_cents: -1 * entry_fee },
+                                $set: { in_active_match: true }
+                            }),
+                        update_one(db, 'player', { _id: ObjectId(pid2) },
+                            {
+                                $inc: { balance_usd_cents: -1 * entry_fee },
+                                $set: { in_active_match: true }
+                            })
+                    ])
+                }
+            ).then(result => {
+                if (typeof (result) == "number") {
+                    res.writeHead(result);
+                } else {
+                    // print(result.length)
+                    if (result && result.length == 3 && result[0] && result[1] && result[2]) {
+                        let inser_id = result[0].insertedId.toString()
+                        res.writeHead(303, { 'Location': '/match/' + inser_id });
+                    } else {
+                        res.writeHead(400);
+                    }
+                }
+                res.end();
+
+            })
+    }
+});
+
+
+
+//4
+app.post('/match/:mid/award/:pid', (req, res) => {
+    var query = req.query;
+    const db = req.app.locals.db;
+
+    if (!check_dig_str(query.points) || undef_to_num(query.points) <= 0) {
+        res.writeHead(400);
+        res.end();
+    } else if (req.params.pid.length != 24 ||
+        req.params.mid.length != 24) {
+        res.writeHead(404);
+        res.end()
+    } else {
+        var points = undef_to_num(query.points);
+        var winner_id = req.params.pid;
+        var mid = req.params.mid;
+
+        Promise.all([
+            find_one(db, 'player', { _id: ObjectId(winner_id) }),
+            find_one(db, 'match', { _id: ObjectId(mid) })
+        ]).then(
+            (result) => {
+                let p_result = result[0];
+                let m_result = result[1];
+
+                if (!result[0] || !result[1]) {
+                    return 404;
+                }
+                // match not active
+                if (m_result.ended_at != null) {
+                    return 409;
+                }
+
+                let update_query;
+                // plyer in match
+                if (winner_id == m_result.p1_id) {
+                    update_query = { "p1_points": points };
+                } else if (winner_id == m_result.p2_id) {
+                    update_query = { "p2_points": points };
+                } else {
+                    // p is not in m
+                    return 400
+                }
+                return Promise.all([
+                    update_one(db, 'match', { _id: ObjectId(mid) }, {
+                        $inc: update_query,
+                        $set: {
+                            p1_name: p_result.fname + " " + p_result.lname,
+                        }
+                    }),
+                    update_one(db, 'player', { _id: ObjectId(winner_id) }, { $inc: { total_points: points } })
+                ])
+            }
+        ).then((result) => {
+
+            if (typeof (result) == 'number') {
+                return result;
+            } else {
+                if (result[0] && result[1]) {
+                    return find_one(db, 'match', { _id: ObjectId(mid) });
+                } else {
+                    return 400;
+                }
+            }
+        }).then((result) => {
+            if (typeof (result) == 'number') {
+                res.writeHead(result);
+            } else if (result) {
+                var m_data = convert_db_to_json_match(result);
+                res.writeHead(200);
+                res.write(JSON.stringify(m_data))
+            }
+            res.end();
+        })
+
+
+    }
+
+
+})
+// 5
+app.post('/match/:mid/end', (req, res) => {
+    // find the match 
+    let query = req.query;
+    let mid = req.params.mid;
+    const db = req.app.locals.db;
+
+    if (req.params.mid.length != 24) {
+        res.writeHead(404);
+        res.end()
+    } else {
+        find_one(db, 'match', { _id: ObjectId(mid) }
+        ).then(
+            (result) => {
+                if (!result) {
+                    return 404;
+                } else if (result.ended_at != null ||
+                    result.p1_points == result.p2_points) {
+                    return 409;
+                } else {
+                    // find the winner 
+                    var winner_id;
+                    if (result.p1_points > result.p2_points) {
+                        winner_id = result.p1_id;
+                    } else {
+                        winner_id = result.p2_id;
+                    }
+                    var now = new Date()
+                    return Promise.all([
+                        update_one(db, 'match', { _id: ObjectId(mid) }, {
+                            $set:
+                                { ended_at: now.toISOString() }
+                        }),
+                        update_one(db, 'player', { _id: ObjectId(winner_id) }, {
+                            $inc: { balance_usd_cents: result.prize_usd_cents }
+                        }),
+                        find_one(db, 'match', { _id: ObjectId(mid) })
+                    ]);
+                }
+            }
+        ).then(
+            (result) => {
+                if (typeof (result) == 'number') {
+                    res.writeHead(result);
+                } else {
+                    if (result[0] && result[1]) {
+                        res.writeHead(200);
+                        var m_data = convert_db_to_json_match(result[2]);
+                        res.write(JSON.stringify(m_data));
+                    }
+                }
+                res.end();
+            }
+        )
+    }
+
+})
+
+
+
+//6 
+app.post('/match/:mid/disqualify/:pid', (req, res) => {
+    let mid = req.params.mid;
+    let pid = req.params.pid;
+    const db = req.app.locals.db;
+
+    if (req.params.mid.length != 24 ||
+        pid.length != 24) {
+        res.writeHead(404);
+        res.end()
+    } else {
+
+        Promise.all([
+            find_one(db, 'player', { _id: ObjectId(pid) }),
+            find_one(db, 'match', { _id: ObjectId(mid) })
+        ]).then(
+            (result) => {
+                let p_result = result[0];
+                let m_result = result[1];
+
+                if (!result[0] || !result[1]) {
+                    return 404;
+                }
+                // match not active
+                if (m_result.ended_at != null) {
+                    return 409;
+                }
+                // plyer not  in match
+                var win_pid;
+                if (pid == m_result.p1_id) {
+                    win_pid = m_result.p2_id;
+                } else if (pid == m_result.p2_id) {
+                    win_pid = m_result.p1_id;
+                } else {
+                    return 400;
+                }
+                var now = new Date()
+                return Promise.all([
+                    update_one(db, 'match', { _id: ObjectId(mid) }, {
+                        $set: {
+                            ended_at: now.toISOString(),
+                            is_dq: true
+                        }
+                    }),
+
+                    update_one(db, 'player', { _id: ObjectId(win_pid) }, {
+                        $inc: {
+                            balance_usd_cents: m_result.prize_usd_cents
+                        }
+                    }),
+                    find_one(db, 'match', { _id: ObjectId(mid) })
+                    // update_one(db, 'player', { _id: ObjectId(pid) }, { $set: {} }),
+                ])
+            }
+        ).then(
+            (result) => {
+                if (typeof (result) == 'number') {
+                    res.writeHead(result);
+                } else {
+                    if (result[0] && result[1]) {
+                        res.writeHead(200);
+                        var m_data = convert_db_to_json_match(result[2]);
+                        res.write(JSON.stringify(m_data));
+                    }
+                }
+                res.end();
+            }
+        )
+    }
+})
 
 ////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////db connection//////////////////////////////////////
@@ -842,8 +912,6 @@ function p_find(pid, mongo_url) {
 
 
 
-
-
 function p_insert(insert_query, db) {
     return new Promise((resolve, reject) => {
 
@@ -865,7 +933,9 @@ function p_insert(insert_query, db) {
 
     })
 }
-
+function print(a) {
+    console.log(a);
+}
 
 function check_dig_str(str) {
     return /^[0-9]*$/.test(str);
@@ -875,6 +945,42 @@ exports.x = check_invalid_query
 
 
 
-function print(a) {
-    console.log(a);
+function update_one(dbo, db_name, id_query, update_query) {
+    return new Promise((resolve, reject) => {
+        dbo.collection(db_name).updateOne(
+            id_query,
+            update_query,
+            function (err, result) {
+                if (err) throw new Error(err.stack);
+
+                resolve(result);
+            }
+        );
+    })
+}
+
+function insert_one(dbo, db_name, insert_query) {
+    return new Promise((resolve, reject) => {
+        dbo.collection(db_name).insertOne(
+            insert_query,
+            function (err, result) {
+                if (err) throw new Error(err.stack);
+
+                resolve(result);
+            }
+        );
+    })
+}
+
+function find_one(dbo, db_name, id_query) {
+    return new Promise((resolve, reject) => {
+        dbo.collection(db_name).findOne(
+            id_query,
+            function (err, result) {
+                if (err) throw new Error(err.stack);
+
+                resolve(result);
+            }
+        );
+    })
 }
