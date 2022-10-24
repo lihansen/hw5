@@ -1,11 +1,13 @@
 const fs = require('fs');
-const http = require('http');
-const { reject, pad, result, find, merge } = require('lodash');
-const { number, ParenthesisNodeDependencies } = require('mathjs');
+// const http = require('http');
+// const { reject, pad, result, find, merge } = require('lodash');
+const { number } = require('mathjs');
 const { ObjectId } = require('mongodb');
-const { resolve } = require('path');
-const url = require('url');
+const MongoClient = require('mongodb').MongoClient;
+// const url = require('url');
 const express = require('express')
+
+
 const app = express()
 const server_port = 3000
 
@@ -258,6 +260,7 @@ app.post('/deposit/player/:pid', (req, res) => {
 
 
 function convert_db_to_json_match(mch_result) {
+
     return {
         mid: mch_result._id,
         entry_fee_usd_cents: mch_result.entry_fee_usd_cents,
@@ -272,7 +275,7 @@ function convert_db_to_json_match(mch_result) {
         is_active: decorate_bool(mch_result.is_active),
         prize_usd_cents: (mch_result.prize_usd_cents),
         // age: Math.abs(Date() - mch_result.created_at) / 1000,
-        age:2,
+        age: 2,
         ended_at: undef_to_str(mch_result.ended_at)
 
     }
@@ -301,7 +304,7 @@ app.get('/match', (req, res) => {
             var inact_mchs = []
             // print(m_objs)
             for (var m of m_objs) {
-                if (m.ended_at != null) {
+                if (!m.ended_at) {
                     act_mchs.push(convert_db_to_json_match(m));
                 } else {
                     inact_mchs.push(convert_db_to_json_match(m));
@@ -313,18 +316,21 @@ app.get('/match', (req, res) => {
                 if (m1.prize_usd_cents > m2.prize_usd_cents) return -1;
                 return 1;
             });
-
+            // print(act_mchs)
             // inact sort by end_at, decrease order 
             inact_mchs.sort(function (m1, m2) {
-                if (m1.ended_at > m2.ended_at) return -1;
+                if (m1.ended_at < m2.ended_at) return -1;
                 return 1;
             });
 
             if (inact_mchs.length > 4) {
-                inact_mchs = inact_mchs.slice(0,4)
+                inact_mchs = inact_mchs.slice(0, 4)
             }
-            
+            // print(inact_mchs)
             var r_data = act_mchs.concat(inact_mchs);
+            // var r_data = inact_mchs.concat(act_mchs);
+            // print(r_data)
+
             // if (r_data.length > 4) {
             //     r_data = r_data.slice(0,4)
             // }
@@ -354,11 +360,32 @@ app.get('/match/:mid', (req, res) => {
             }
             // print(m_result)
             if (m_result) {
-                var m_data = convert_db_to_json_match(m_result);
-                // print(m_data)
-                res.writeHead(200);
-                res.write(JSON.stringify(m_data));
-                res.end();
+                Promise.all([
+                    find_one(db, 'player', { _id: m_result.p1_id }),
+                    find_one(db, 'player', { _id: m_result.p2_id })
+                ]).then(
+                    result => {
+                        var p1 = result[0];
+                        var p2 = result[1];
+                        var p1_name = p1.fname + " " + p1.lname;
+                        var p2_name = p2.fname + ' ' + p2.lname;
+                        // print(p1)
+                        // print(p2)
+                        m_result.p1_name = p1_name;
+                        m_result.p2_name = p2_name;
+                        
+                        if (!m_result.winner_pid && m_result.is_dq){
+                            m_result.winner_pid = m_result.p2_id;
+                        }
+                        
+
+                        var m_data = convert_db_to_json_match(m_result);
+                        // print(m_data)
+                        res.writeHead(200);
+                        res.write(JSON.stringify(m_data));
+                        res.end();
+                    }
+                )
 
             } else {
                 // match not exists
@@ -722,7 +749,6 @@ if (!("collection" in config_json)) {
 
 
 const mongo_url = 'mongodb://' + config_json.host + ':' + config_json.port;
-var MongoClient = require('mongodb').MongoClient;
 
 // const mg_client = MongoClient.connect(mongo_url);
 
